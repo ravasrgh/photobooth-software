@@ -1,0 +1,9 @@
+# Core
+pyzmq>=25.1
+sqlalchemy>=2.0
+gphoto2>=2.5
+Pillow>=10.0
+
+# Dev / Test
+pytest>=7.0
+pytest-asyncio>=0.23

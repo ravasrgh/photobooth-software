@@ -1,0 +1,22 @@
+[project]
+name = "photobooth-hw-controller"
+version = "0.1.0"
+description = "Photobooth Hardware Controller — Python backend for DSLR camera, printer, and state management"
+requires-python = ">=3.11"
+
+dependencies = [
+    "pyzmq>=25.1",
+    "sqlalchemy>=2.0",
+    "gphoto2>=2.5",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,17 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node.js
+node_modules/
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Photobooth media (Don't upload test photos)
+captures/
+output/
