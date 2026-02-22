@@ -15,3 +15,5 @@ venv/
 # Photobooth media (Don't upload test photos)
 captures/
 output/
+
+/.obsidian
