@@ -1,4 +1,4 @@
-"""Unit tests for the BoothStateMachine."""
+"""Unit tests for the BoothStateMachine (13-state FSM)."""
 
 import pytest
 from hw_controller.core.state_machine import (
@@ -27,6 +27,59 @@ def sm_with_callback():
     return machine, events
 
 
+# ── Helpers ─────────────────────────────────────────────────────────
+
+async def _advance_to_idle(sm):
+    """INITIALIZING → IDLE."""
+    await sm.fire(Trigger.HARDWARE_READY)
+
+async def _advance_to_onboarding(sm):
+    """→ ONBOARDING."""
+    await _advance_to_idle(sm)
+    await sm.fire(Trigger.SESSION_START)
+
+async def _advance_to_payment(sm):
+    """→ AWAITING_PAYMENT."""
+    await _advance_to_onboarding(sm)
+    await sm.fire(Trigger.ONBOARDING_DONE)
+
+async def _advance_to_capture_setup(sm):
+    """→ CAPTURE_SETUP."""
+    await _advance_to_payment(sm)
+    await sm.fire(Trigger.PAYMENT_CONFIRMED)
+
+async def _advance_to_countdown(sm):
+    """→ COUNTDOWN."""
+    await _advance_to_capture_setup(sm)
+    await sm.fire(Trigger.CAPTURE_SETUP_READY)
+
+async def _advance_to_processing(sm):
+    """→ PROCESSING (after first capture)."""
+    await _advance_to_countdown(sm)
+    await sm.fire(Trigger.COUNTDOWN_DONE)
+    await sm.fire(Trigger.CAPTURE_DONE)
+
+async def _advance_to_customization(sm):
+    """→ CUSTOMIZATION."""
+    await _advance_to_processing(sm)
+    await sm.fire(Trigger.ALL_PHOTOS_DONE)
+
+async def _advance_to_preview(sm):
+    """→ PREVIEW."""
+    await _advance_to_customization(sm)
+    await sm.fire(Trigger.CUSTOMIZATION_DONE)
+
+async def _advance_to_printing(sm):
+    """→ PRINTING."""
+    await _advance_to_preview(sm)
+    await sm.fire(Trigger.PRINT_REQUESTED)
+
+async def _advance_to_complete(sm):
+    """→ COMPLETE."""
+    await _advance_to_printing(sm)
+    await sm.fire(Trigger.PRINT_DONE)
+
+
 # ── Initial state ───────────────────────────────────────────────────
 
 class TestInitialState:
@@ -48,11 +101,20 @@ class TestValidTransitions:
 
     @pytest.mark.asyncio
     async def test_full_happy_path(self, sm):
-        """Walk through a complete session: INIT → IDLE → … → IDLE."""
+        """Walk through the full 13-state happy path."""
         await sm.fire(Trigger.HARDWARE_READY)
         assert sm.state == State.IDLE
 
         await sm.fire(Trigger.SESSION_START)
+        assert sm.state == State.ONBOARDING
+
+        await sm.fire(Trigger.ONBOARDING_DONE)
+        assert sm.state == State.AWAITING_PAYMENT
+
+        await sm.fire(Trigger.PAYMENT_CONFIRMED)
+        assert sm.state == State.CAPTURE_SETUP
+
+        await sm.fire(Trigger.CAPTURE_SETUP_READY)
         assert sm.state == State.COUNTDOWN
 
         await sm.fire(Trigger.COUNTDOWN_DONE)
@@ -61,44 +123,201 @@ class TestValidTransitions:
         await sm.fire(Trigger.CAPTURE_DONE)
         assert sm.state == State.PROCESSING
 
-        await sm.fire(Trigger.PROCESSING_DONE)
-        assert sm.state == State.REVIEW
+        await sm.fire(Trigger.ALL_PHOTOS_DONE)
+        assert sm.state == State.CUSTOMIZATION
+
+        await sm.fire(Trigger.CUSTOMIZATION_DONE)
+        assert sm.state == State.PREVIEW
 
         await sm.fire(Trigger.PRINT_REQUESTED)
         assert sm.state == State.PRINTING
 
         await sm.fire(Trigger.PRINT_DONE)
+        assert sm.state == State.COMPLETE
+
+        await sm.fire(Trigger.SESSION_COMPLETE)
         assert sm.state == State.IDLE
 
     @pytest.mark.asyncio
     async def test_multi_photo_session(self, sm):
-        """Take multiple photos by cycling REVIEW → COUNTDOWN → CAPTURE → …"""
-        await sm.fire(Trigger.HARDWARE_READY)
-        await sm.fire(Trigger.SESSION_START)
-        await sm.fire(Trigger.COUNTDOWN_DONE)
-        await sm.fire(Trigger.CAPTURE_DONE)
-        await sm.fire(Trigger.PROCESSING_DONE)
-        assert sm.state == State.REVIEW
+        """Take multiple photos by cycling PROCESSING → COUNTDOWN → …"""
+        await _advance_to_processing(sm)
+        assert sm.state == State.PROCESSING
 
-        # Take another photo
+        # More photos remain → loop back to COUNTDOWN
         await sm.fire(Trigger.NEXT_PHOTO)
         assert sm.state == State.COUNTDOWN
 
         await sm.fire(Trigger.COUNTDOWN_DONE)
         await sm.fire(Trigger.CAPTURE_DONE)
-        await sm.fire(Trigger.PROCESSING_DONE)
-        assert sm.state == State.REVIEW
+        assert sm.state == State.PROCESSING
 
-        # Complete without printing
-        await sm.fire(Trigger.SESSION_COMPLETE)
+        # Third photo
+        await sm.fire(Trigger.NEXT_PHOTO)
+        assert sm.state == State.COUNTDOWN
+
+        await sm.fire(Trigger.COUNTDOWN_DONE)
+        await sm.fire(Trigger.CAPTURE_DONE)
+        assert sm.state == State.PROCESSING
+
+        # All done
+        await sm.fire(Trigger.ALL_PHOTOS_DONE)
+        assert sm.state == State.CUSTOMIZATION
+
+
+# ── Onboarding ──────────────────────────────────────────────────────
+
+class TestOnboarding:
+    @pytest.mark.asyncio
+    async def test_session_start_goes_to_onboarding(self, sm):
+        await _advance_to_idle(sm)
+        await sm.fire(Trigger.SESSION_START)
+        assert sm.state == State.ONBOARDING
+
+    @pytest.mark.asyncio
+    async def test_onboarding_done_goes_to_payment(self, sm):
+        await _advance_to_onboarding(sm)
+        await sm.fire(Trigger.ONBOARDING_DONE)
+        assert sm.state == State.AWAITING_PAYMENT
+
+    @pytest.mark.asyncio
+    async def test_cancel_from_onboarding(self, sm):
+        await _advance_to_onboarding(sm)
+        await sm.fire(Trigger.SESSION_CANCEL)
+        assert sm.state == State.IDLE
+
+
+# ── Payment ─────────────────────────────────────────────────────────
+
+class TestPayment:
+    @pytest.mark.asyncio
+    async def test_payment_confirmed(self, sm):
+        await _advance_to_payment(sm)
+        await sm.fire(Trigger.PAYMENT_CONFIRMED)
+        assert sm.state == State.CAPTURE_SETUP
+
+    @pytest.mark.asyncio
+    async def test_payment_failed(self, sm):
+        await _advance_to_payment(sm)
+        await sm.fire(Trigger.PAYMENT_FAILED)
         assert sm.state == State.IDLE
 
     @pytest.mark.asyncio
-    async def test_session_cancel(self, sm):
-        await sm.fire(Trigger.HARDWARE_READY)
-        await sm.fire(Trigger.SESSION_START)
+    async def test_payment_cancelled(self, sm):
+        await _advance_to_payment(sm)
+        await sm.fire(Trigger.PAYMENT_CANCELLED)
+        assert sm.state == State.IDLE
+
+
+# ── Capture Setup ───────────────────────────────────────────────────
+
+class TestCaptureSetup:
+    @pytest.mark.asyncio
+    async def test_capture_setup_ready(self, sm):
+        await _advance_to_capture_setup(sm)
+        await sm.fire(Trigger.CAPTURE_SETUP_READY)
         assert sm.state == State.COUNTDOWN
 
+    @pytest.mark.asyncio
+    async def test_capture_setup_timeout(self, sm):
+        await _advance_to_capture_setup(sm)
+        await sm.fire(Trigger.CAPTURE_SETUP_TIMEOUT)
+        assert sm.state == State.COUNTDOWN
+
+    @pytest.mark.asyncio
+    async def test_cancel_from_capture_setup(self, sm):
+        await _advance_to_capture_setup(sm)
+        await sm.fire(Trigger.SESSION_CANCEL)
+        assert sm.state == State.IDLE
+
+
+# ── Customization ───────────────────────────────────────────────────
+
+class TestCustomization:
+    @pytest.mark.asyncio
+    async def test_customization_done(self, sm):
+        await _advance_to_customization(sm)
+        await sm.fire(Trigger.CUSTOMIZATION_DONE)
+        assert sm.state == State.PREVIEW
+
+    @pytest.mark.asyncio
+    async def test_retake_from_customization(self, sm):
+        """Retake → COUNTDOWN → full capture cycle → back to CUSTOMIZATION."""
+        await _advance_to_customization(sm)
+        await sm.fire(Trigger.RETAKE_REQUESTED)
+        assert sm.state == State.COUNTDOWN
+
+        # Complete the retake capture cycle
+        await sm.fire(Trigger.COUNTDOWN_DONE)
+        assert sm.state == State.CAPTURING
+        await sm.fire(Trigger.CAPTURE_DONE)
+        assert sm.state == State.PROCESSING
+        await sm.fire(Trigger.ALL_PHOTOS_DONE)
+        assert sm.state == State.CUSTOMIZATION
+
+    @pytest.mark.asyncio
+    async def test_cancel_from_customization(self, sm):
+        await _advance_to_customization(sm)
+        await sm.fire(Trigger.SESSION_CANCEL)
+        assert sm.state == State.IDLE
+
+
+# ── Preview ─────────────────────────────────────────────────────────
+
+class TestPreview:
+    @pytest.mark.asyncio
+    async def test_print_requested(self, sm):
+        await _advance_to_preview(sm)
+        await sm.fire(Trigger.PRINT_REQUESTED)
+        assert sm.state == State.PRINTING
+
+    @pytest.mark.asyncio
+    async def test_back_to_customize(self, sm):
+        await _advance_to_preview(sm)
+        await sm.fire(Trigger.BACK_TO_CUSTOMIZE)
+        assert sm.state == State.CUSTOMIZATION
+
+
+# ── Printing & Complete ─────────────────────────────────────────────
+
+class TestPrintingAndComplete:
+    @pytest.mark.asyncio
+    async def test_print_done_goes_to_complete(self, sm):
+        await _advance_to_printing(sm)
+        await sm.fire(Trigger.PRINT_DONE)
+        assert sm.state == State.COMPLETE
+
+    @pytest.mark.asyncio
+    async def test_session_complete_goes_to_idle(self, sm):
+        await _advance_to_complete(sm)
+        await sm.fire(Trigger.SESSION_COMPLETE)
+        assert sm.state == State.IDLE
+
+
+# ── Session cancellation ────────────────────────────────────────────
+
+class TestSessionCancel:
+    @pytest.mark.asyncio
+    async def test_cancel_from_countdown(self, sm):
+        await _advance_to_countdown(sm)
+        await sm.fire(Trigger.SESSION_CANCEL)
+        assert sm.state == State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_cancel_from_onboarding(self, sm):
+        await _advance_to_onboarding(sm)
+        await sm.fire(Trigger.SESSION_CANCEL)
+        assert sm.state == State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_cancel_from_capture_setup(self, sm):
+        await _advance_to_capture_setup(sm)
+        await sm.fire(Trigger.SESSION_CANCEL)
+        assert sm.state == State.IDLE
+
+    @pytest.mark.asyncio
+    async def test_cancel_from_customization(self, sm):
+        await _advance_to_customization(sm)
         await sm.fire(Trigger.SESSION_CANCEL)
         assert sm.state == State.IDLE
 
@@ -108,8 +327,7 @@ class TestValidTransitions:
 class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_capture_fail_goes_to_error(self, sm):
-        await sm.fire(Trigger.HARDWARE_READY)
-        await sm.fire(Trigger.SESSION_START)
+        await _advance_to_countdown(sm)
         await sm.fire(Trigger.COUNTDOWN_DONE)
         assert sm.state == State.CAPTURING
 
@@ -117,6 +335,12 @@ class TestErrorHandling:
         await sm.fire(Trigger.CAPTURE_FAIL, context=error_ctx)
         assert sm.state == State.ERROR
         assert sm.error_context == error_ctx
+
+    @pytest.mark.asyncio
+    async def test_processing_fail_goes_to_error(self, sm):
+        await _advance_to_processing(sm)
+        await sm.fire(Trigger.PROCESSING_FAIL, context={"error": "thumbnail failed"})
+        assert sm.state == State.ERROR
 
     @pytest.mark.asyncio
     async def test_error_resolved_goes_to_idle(self, sm):
@@ -142,13 +366,7 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_print_fail(self, sm):
-        await sm.fire(Trigger.HARDWARE_READY)
-        await sm.fire(Trigger.SESSION_START)
-        await sm.fire(Trigger.COUNTDOWN_DONE)
-        await sm.fire(Trigger.CAPTURE_DONE)
-        await sm.fire(Trigger.PROCESSING_DONE)
-        await sm.fire(Trigger.PRINT_REQUESTED)
-
+        await _advance_to_printing(sm)
         await sm.fire(Trigger.PRINT_FAIL, context={"error": "out of paper"})
         assert sm.state == State.ERROR
 
@@ -173,6 +391,24 @@ class TestInvalidTransitions:
         with pytest.raises(InvalidTransitionError):
             await sm.fire(Trigger.PRINT_DONE)
 
+    @pytest.mark.asyncio
+    async def test_cannot_pay_from_onboarding(self, sm):
+        await _advance_to_onboarding(sm)
+        with pytest.raises(InvalidTransitionError):
+            await sm.fire(Trigger.PAYMENT_CONFIRMED)
+
+    @pytest.mark.asyncio
+    async def test_cannot_customize_from_countdown(self, sm):
+        await _advance_to_countdown(sm)
+        with pytest.raises(InvalidTransitionError):
+            await sm.fire(Trigger.CUSTOMIZATION_DONE)
+
+    @pytest.mark.asyncio
+    async def test_cannot_complete_from_printing(self, sm):
+        await _advance_to_printing(sm)
+        with pytest.raises(InvalidTransitionError):
+            await sm.fire(Trigger.SESSION_COMPLETE)
+
 
 # ── Utility methods ─────────────────────────────────────────────────
 
@@ -195,6 +431,22 @@ class TestUtilityMethods:
         assert d["state"] == "INITIALIZING"
         assert d["error_context"] is None
         assert isinstance(d["available_triggers"], list)
+
+    @pytest.mark.asyncio
+    async def test_available_triggers_in_idle(self, sm):
+        await _advance_to_idle(sm)
+        triggers = sm.available_triggers()
+        assert Trigger.SESSION_START in triggers
+        assert Trigger.HARDWARE_READY not in triggers
+
+    @pytest.mark.asyncio
+    async def test_available_triggers_in_customization(self, sm):
+        await _advance_to_customization(sm)
+        triggers = sm.available_triggers()
+        assert Trigger.CUSTOMIZATION_DONE in triggers
+        assert Trigger.RETAKE_REQUESTED in triggers
+        assert Trigger.SESSION_CANCEL in triggers
+        assert Trigger.PRINT_REQUESTED not in triggers
 
 
 # ── Callback ────────────────────────────────────────────────────────

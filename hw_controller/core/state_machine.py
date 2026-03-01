@@ -8,71 +8,117 @@ logger = logging.getLogger(__name__)
 
 
 class State(str, Enum):
-    """All possible states of the photobooth backend."""
-    INITIALIZING = "INITIALIZING"
-    IDLE         = "IDLE"
-    COUNTDOWN    = "COUNTDOWN"
-    CAPTURING    = "CAPTURING"
-    PROCESSING   = "PROCESSING"
-    REVIEW       = "REVIEW"
-    PRINTING     = "PRINTING"
-    ERROR        = "ERROR"
+    """All possible states of the photobooth backend (13 states)."""
+    INITIALIZING     = "INITIALIZING"
+    IDLE             = "IDLE"
+    ONBOARDING       = "ONBOARDING"
+    AWAITING_PAYMENT = "AWAITING_PAYMENT"
+    CAPTURE_SETUP    = "CAPTURE_SETUP"
+    COUNTDOWN        = "COUNTDOWN"
+    CAPTURING        = "CAPTURING"
+    PROCESSING       = "PROCESSING"
+    CUSTOMIZATION    = "CUSTOMIZATION"
+    PREVIEW          = "PREVIEW"
+    PRINTING         = "PRINTING"
+    COMPLETE         = "COMPLETE"
+    ERROR            = "ERROR"
 
 
 class Trigger(str, Enum):
     """Events that cause state transitions."""
-    HARDWARE_READY   = "hardware_ready"
-    HARDWARE_FAIL    = "hardware_fail"
-    SESSION_START    = "session_start"
-    SESSION_CANCEL   = "session_cancel"
-    COUNTDOWN_DONE   = "countdown_done"
-    CAPTURE_DONE     = "capture_done"
-    CAPTURE_FAIL     = "capture_fail"
-    PROCESSING_DONE  = "processing_done"
-    PROCESSING_FAIL  = "processing_fail"
-    NEXT_PHOTO       = "next_photo"
-    PRINT_REQUESTED  = "print_requested"
-    PRINT_DONE       = "print_done"
-    PRINT_FAIL       = "print_fail"
-    SESSION_COMPLETE = "session_complete"
-    ERROR_RESOLVED   = "error_resolved"
-    RESTART          = "restart_requested"
+    # Startup
+    HARDWARE_READY       = "hardware_ready"
+    HARDWARE_FAIL        = "hardware_fail"
+    # Session lifecycle
+    SESSION_START        = "session_start"
+    SESSION_CANCEL       = "session_cancel"
+    SESSION_COMPLETE     = "session_complete"
+    # Onboarding
+    ONBOARDING_DONE      = "onboarding_done"
+    # Payment
+    PAYMENT_CONFIRMED    = "payment_confirmed"
+    PAYMENT_FAILED       = "payment_failed"
+    PAYMENT_CANCELLED    = "payment_cancelled"
+    # Capture setup
+    CAPTURE_SETUP_READY  = "capture_setup_ready"
+    CAPTURE_SETUP_TIMEOUT = "capture_setup_timeout"
+    # Capture cycle
+    COUNTDOWN_DONE       = "countdown_done"
+    CAPTURE_DONE         = "capture_done"
+    CAPTURE_FAIL         = "capture_fail"
+    PROCESSING_DONE      = "processing_done"
+    PROCESSING_FAIL      = "processing_fail"
+    NEXT_PHOTO           = "next_photo"
+    ALL_PHOTOS_DONE      = "all_photos_done"
+    # Customization
+    RETAKE_REQUESTED     = "retake_requested"
+    CUSTOMIZATION_DONE   = "customization_done"
+    # Preview / Print
+    PRINT_REQUESTED      = "print_requested"
+    BACK_TO_CUSTOMIZE    = "back_to_customize"
+    PRINT_DONE           = "print_done"
+    PRINT_FAIL           = "print_fail"
+    # Error recovery
+    ERROR_RESOLVED       = "error_resolved"
+    RESTART              = "restart_requested"
 
 
-# ── Transition table ────────────────────────────────────────────────
+# ── Transition table (PRD §3.2) ────────────────────────────────────
 # Maps (current_state, trigger) → next_state
 TRANSITIONS: dict[tuple[State, Trigger], State] = {
     # Startup
-    (State.INITIALIZING, Trigger.HARDWARE_READY):  State.IDLE,
-    (State.INITIALIZING, Trigger.HARDWARE_FAIL):   State.ERROR,
+    (State.INITIALIZING, Trigger.HARDWARE_READY):       State.IDLE,
+    (State.INITIALIZING, Trigger.HARDWARE_FAIL):        State.ERROR,
 
-    # Session start
-    (State.IDLE, Trigger.SESSION_START):            State.COUNTDOWN,
+    # Session start → onboarding
+    (State.IDLE, Trigger.SESSION_START):                 State.ONBOARDING,
+
+    # Onboarding
+    (State.ONBOARDING, Trigger.ONBOARDING_DONE):        State.AWAITING_PAYMENT,
+    (State.ONBOARDING, Trigger.SESSION_CANCEL):         State.IDLE,
+
+    # Payment
+    (State.AWAITING_PAYMENT, Trigger.PAYMENT_CONFIRMED):  State.CAPTURE_SETUP,
+    (State.AWAITING_PAYMENT, Trigger.PAYMENT_FAILED):     State.IDLE,
+    (State.AWAITING_PAYMENT, Trigger.PAYMENT_CANCELLED):  State.IDLE,
+
+    # Capture setup
+    (State.CAPTURE_SETUP, Trigger.CAPTURE_SETUP_READY):   State.COUNTDOWN,
+    (State.CAPTURE_SETUP, Trigger.CAPTURE_SETUP_TIMEOUT): State.COUNTDOWN,
+    (State.CAPTURE_SETUP, Trigger.SESSION_CANCEL):        State.IDLE,
 
     # Countdown
-    (State.COUNTDOWN, Trigger.COUNTDOWN_DONE):     State.CAPTURING,
-    (State.COUNTDOWN, Trigger.SESSION_CANCEL):      State.IDLE,
+    (State.COUNTDOWN, Trigger.COUNTDOWN_DONE):          State.CAPTURING,
+    (State.COUNTDOWN, Trigger.SESSION_CANCEL):          State.IDLE,
 
     # Capture
-    (State.CAPTURING, Trigger.CAPTURE_DONE):        State.PROCESSING,
-    (State.CAPTURING, Trigger.CAPTURE_FAIL):        State.ERROR,
+    (State.CAPTURING, Trigger.CAPTURE_DONE):            State.PROCESSING,
+    (State.CAPTURING, Trigger.CAPTURE_FAIL):            State.ERROR,
 
-    # Processing
-    (State.PROCESSING, Trigger.PROCESSING_DONE):    State.REVIEW,
-    (State.PROCESSING, Trigger.PROCESSING_FAIL):    State.ERROR,
+    # Processing — branch: more photos or all done
+    (State.PROCESSING, Trigger.NEXT_PHOTO):             State.COUNTDOWN,
+    (State.PROCESSING, Trigger.ALL_PHOTOS_DONE):        State.CUSTOMIZATION,
+    (State.PROCESSING, Trigger.PROCESSING_FAIL):        State.ERROR,
 
-    # Review
-    (State.REVIEW, Trigger.NEXT_PHOTO):             State.COUNTDOWN,
-    (State.REVIEW, Trigger.PRINT_REQUESTED):        State.PRINTING,
-    (State.REVIEW, Trigger.SESSION_COMPLETE):        State.IDLE,
+    # Customization
+    (State.CUSTOMIZATION, Trigger.CUSTOMIZATION_DONE):  State.PREVIEW,
+    (State.CUSTOMIZATION, Trigger.RETAKE_REQUESTED):    State.COUNTDOWN,
+    (State.CUSTOMIZATION, Trigger.SESSION_CANCEL):      State.IDLE,
+
+    # Preview
+    (State.PREVIEW, Trigger.PRINT_REQUESTED):           State.PRINTING,
+    (State.PREVIEW, Trigger.BACK_TO_CUSTOMIZE):         State.CUSTOMIZATION,
 
     # Printing
-    (State.PRINTING, Trigger.PRINT_DONE):           State.IDLE,
-    (State.PRINTING, Trigger.PRINT_FAIL):           State.ERROR,
+    (State.PRINTING, Trigger.PRINT_DONE):               State.COMPLETE,
+    (State.PRINTING, Trigger.PRINT_FAIL):               State.ERROR,
+
+    # Complete → auto-reset
+    (State.COMPLETE, Trigger.SESSION_COMPLETE):          State.IDLE,
 
     # Error recovery
-    (State.ERROR, Trigger.ERROR_RESOLVED):          State.IDLE,
-    (State.ERROR, Trigger.RESTART):                 State.INITIALIZING,
+    (State.ERROR, Trigger.ERROR_RESOLVED):              State.IDLE,
+    (State.ERROR, Trigger.RESTART):                     State.INITIALIZING,
 }
 
 
