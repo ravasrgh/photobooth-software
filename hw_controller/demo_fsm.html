@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Photobooth FSM + Database Demo</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #fff; color: #222; }
+
+        /* Tabs */
+        .tabs {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            display: flex; background: #f8f8f8; border-bottom: 1px solid #ddd;
+        }
+        .tab {
+            padding: 10px 24px; font-size: 13px; font-weight: bold;
+            cursor: pointer; border-bottom: 2px solid transparent;
+            color: #888; background: none; border-top: none; border-left: none; border-right: none;
+        }
+        .tab.active { color: #222; border-bottom-color: #48c; }
+        .tab:hover { color: #222; }
+
+        /* Panels */
+        .panel { display: none; padding-top: 42px; min-height: 100vh; }
+        .panel.active { display: block; }
+
+        /* State badge */
+        #badge {
+            position: fixed; top: 48px; right: 12px;
+            background: #111; color: #4f4; font-weight: bold;
+            padding: 6px 14px; border-radius: 6px; font-size: 13px; z-index: 99;
+        }
+        #badge.error { color: #f44; }
+
+        /* Reset button */
+        #resetBtn {
+            position: fixed; top: 48px; left: 12px; z-index: 99;
+            padding: 6px 14px; border-radius: 6px; border: 1px solid #ccc;
+            background: #fff; cursor: pointer; font-size: 13px;
+        }
+        #resetBtn:hover { background: #fee; border-color: #f44; }
+
+        /* FSM Screens */
+        .screen {
+            display: none; min-height: calc(100vh - 42px);
+            flex-direction: column; align-items: center; justify-content: center;
+            padding: 80px 20px 80px;
+        }
+        .screen.active { display: flex; }
+        .screen h1 { font-size: 28px; margin-bottom: 6px; }
+        .screen .state-tag {
+            display: inline-block; padding: 3px 10px; border-radius: 4px;
+            background: #eef; color: #55a; font-size: 12px; font-weight: bold;
+            margin-bottom: 12px;
+        }
+        .screen p { color: #666; font-size: 14px; margin-bottom: 24px; max-width: 500px; text-align: center; }
+        .btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+        .btn {
+            padding: 10px 20px; border-radius: 6px; border: 1px solid #ccc;
+            background: #fff; font-size: 13px; cursor: pointer; transition: 0.15s;
+        }
+        .btn:hover { background: #f5f5f5; }
+        .btn.green { border-color: #4a4; color: #262; }
+        .btn.green:hover { background: #efd; }
+        .btn.red { border-color: #c44; color: #622; }
+        .btn.red:hover { background: #fee; }
+        .btn.orange { border-color: #c84; color: #642; }
+        .btn.orange:hover { background: #fec; }
+        .btn.blue { border-color: #48c; color: #246; }
+        .btn.blue:hover { background: #eef; }
+        .btn .dest { color: #999; font-size: 11px; margin-left: 4px; }
+
+        /* Log bar */
+        #log {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            height: 40px; background: #f8f8f8; border-top: 1px solid #ddd;
+            display: flex; align-items: center; gap: 8px;
+            padding: 0 12px; overflow-x: auto; font-size: 12px; z-index: 99;
+        }
+        #log::-webkit-scrollbar { display: none; }
+        .chip {
+            flex-shrink: 0; padding: 3px 10px; border-radius: 10px;
+            background: #eee; font-size: 11px; white-space: nowrap;
+        }
+        .chip b { color: #c70; }
+        .chip i { color: #55a; font-style: normal; font-weight: 600; }
+
+        /* ── Database panel ──────────────────────── */
+        .db-panel { padding: 60px 24px 60px; }
+        .db-panel h2 { font-size: 16px; margin-bottom: 4px; color: #333; }
+        .db-panel .hint { font-size: 12px; color: #888; margin-bottom: 20px; }
+
+        .db-table-group { margin-bottom: 28px; }
+        .db-table-title {
+            font-size: 14px; font-weight: bold; color: #48c;
+            margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+        }
+        .db-table-title .count {
+            font-size: 11px; font-weight: normal; color: #888;
+            background: #eee; padding: 2px 8px; border-radius: 10px;
+        }
+        .db-table-empty {
+            font-size: 12px; color: #bbb; font-style: italic; padding: 8px 0;
+        }
+        .db-table {
+            width: 100%; border-collapse: collapse; font-size: 12px;
+            border: 1px solid #eee; border-radius: 6px; overflow: hidden;
+        }
+        .db-table th {
+            background: #f5f5f5; text-align: left; padding: 6px 10px;
+            font-weight: 600; color: #555; border-bottom: 1px solid #eee;
+            white-space: nowrap;
+        }
+        .db-table td {
+            padding: 6px 10px; border-bottom: 1px solid #f0f0f0;
+            max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .db-table tr:last-child td { border-bottom: none; }
+        .db-table tr.new-row td { background: #efd; animation: fadeGreen 2s ease-out; }
+        @keyframes fadeGreen { from { background: #bfb; } to { background: #efd; } }
+
+        .db-refresh-note {
+            position: fixed; top: 48px; right: 12px; z-index: 99;
+            font-size: 11px; color: #888; background: #f8f8f8;
+            padding: 4px 10px; border-radius: 10px; border: 1px solid #eee;
+        }
+
+        .null-val { color: #ccc; font-style: italic; }
+    </style>
+</head>
+
+<body>
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('fsm')">FSM States</button>
+        <button class="tab" onclick="switchTab('db')">Database Viewer</button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         FSM PANEL
+         ═══════════════════════════════════════════════ -->
+    <div class="panel active" id="panel-fsm">
+        <div id="badge">INITIALIZING</div>
+        <button id="resetBtn" onclick="resetFSM()">Reset</button>
+
+        <div class="screen" id="s-INITIALIZING">
+            <h1>Initializing Hardware</h1>
+            <div class="state-tag">INITIALIZING</div>
+            <p>Checking camera, printer, payment hardware...</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('hardware_ready')">Hardware Ready <span class="dest">&#8594; IDLE</span></button>
+                <button class="btn red" onclick="fire('hardware_fail')">Hardware Fail <span class="dest">&#8594; ERROR</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-IDLE">
+            <h1>Attract Screen</h1>
+            <div class="state-tag">IDLE</div>
+            <p>Tap anywhere to start a session.</p>
+            <div class="btns">
+                <button class="btn blue" onclick="fire('session_start')">Tap to Start <span class="dest">&#8594; ONBOARDING</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-ONBOARDING">
+            <h1>Onboarding</h1>
+            <div class="state-tag">ONBOARDING</div>
+            <p>Tutorial cards: Strike a Pose, Customize, Print &amp; Download, Let's Go!</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('onboarding_done')">Complete / Skip <span class="dest">&#8594; AWAITING_PAYMENT</span></button>
+                <button class="btn red" onclick="fire('session_cancel')">Cancel <span class="dest">&#8594; IDLE</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-AWAITING_PAYMENT">
+            <h1>Payment</h1>
+            <div class="state-tag">AWAITING_PAYMENT</div>
+            <p>QRIS or Cash &#8212; Waiting for payment confirmation.</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('payment_confirmed')">Payment Confirmed <span class="dest">&#8594; CAPTURE_SETUP</span></button>
+                <button class="btn red" onclick="fire('payment_failed')">Payment Failed <span class="dest">&#8594; IDLE</span></button>
+                <button class="btn orange" onclick="fire('payment_cancelled')">Payment Cancelled <span class="dest">&#8594; IDLE</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-CAPTURE_SETUP">
+            <h1>Capture Setup</h1>
+            <div class="state-tag">CAPTURE_SETUP</div>
+            <p>Live camera preview &#8212; position yourself. You'll take 4 photos.</p>
+            <div class="btns">
+                <button class="btn blue" onclick="fire('capture_setup_ready')">I'm Ready! <span class="dest">&#8594; COUNTDOWN</span></button>
+                <button class="btn orange" onclick="fire('capture_setup_timeout')">Timeout <span class="dest">&#8594; COUNTDOWN</span></button>
+                <button class="btn red" onclick="fire('session_cancel')">Cancel <span class="dest">&#8594; IDLE</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-COUNTDOWN">
+            <h1>3... 2... 1...</h1>
+            <div class="state-tag">COUNTDOWN</div>
+            <p>Counting down &#8212; smile!</p>
+            <div class="btns">
+                <button class="btn blue" onclick="fire('countdown_done')">Countdown Done <span class="dest">&#8594; CAPTURING</span></button>
+                <button class="btn red" onclick="fire('session_cancel')">Cancel <span class="dest">&#8594; IDLE</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-CAPTURING">
+            <h1>Capturing...</h1>
+            <div class="state-tag">CAPTURING</div>
+            <p>Camera shutter fired &#8212; taking the photo.</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('capture_done')">Capture Done <span class="dest">&#8594; PROCESSING</span></button>
+                <button class="btn red" onclick="fire('capture_fail')">Capture Fail <span class="dest">&#8594; ERROR</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-PROCESSING">
+            <h1>Processing...</h1>
+            <div class="state-tag">PROCESSING</div>
+            <p>Generating thumbnail. More photos or all done?</p>
+            <div class="btns">
+                <button class="btn blue" onclick="fire('next_photo')">Next Photo <span class="dest">&#8594; COUNTDOWN</span></button>
+                <button class="btn green" onclick="fire('all_photos_done')">All Photos Done <span class="dest">&#8594; CUSTOMIZATION</span></button>
+                <button class="btn red" onclick="fire('processing_fail')">Processing Fail <span class="dest">&#8594; ERROR</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-CUSTOMIZATION">
+            <h1>Customization</h1>
+            <div class="state-tag">CUSTOMIZATION</div>
+            <p>Choose layout, design, filters. Retake a photo if needed.</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('customization_done')">Looks Great! <span class="dest">&#8594; PREVIEW</span></button>
+                <button class="btn orange" onclick="fire('retake_requested')">Retake Photo <span class="dest">&#8594; COUNTDOWN</span></button>
+                <button class="btn red" onclick="fire('session_cancel')">Cancel <span class="dest">&#8594; IDLE</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-PREVIEW">
+            <h1>Print Preview</h1>
+            <div class="state-tag">PREVIEW</div>
+            <p>Final composite &#8212; confirm print or go back to edit.</p>
+            <div class="btns">
+                <button class="btn blue" onclick="fire('print_requested')">Print My Photos! <span class="dest">&#8594; PRINTING</span></button>
+                <button class="btn orange" onclick="fire('back_to_customize')">Go Back &amp; Edit <span class="dest">&#8594; CUSTOMIZATION</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-PRINTING">
+            <h1>Printing...</h1>
+            <div class="state-tag">PRINTING</div>
+            <p>Your photo is on the way! QR code available for download.</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('print_done')">Print Done <span class="dest">&#8594; COMPLETE</span></button>
+                <button class="btn red" onclick="fire('print_fail')">Print Fail <span class="dest">&#8594; ERROR</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-COMPLETE">
+            <h1>Thank You!</h1>
+            <div class="state-tag">COMPLETE</div>
+            <p>Session complete &#8212; resetting for next guest.</p>
+            <div class="btns">
+                <button class="btn blue" onclick="fire('session_complete')">Back to Idle <span class="dest">&#8594; IDLE</span></button>
+            </div>
+        </div>
+
+        <div class="screen" id="s-ERROR">
+            <h1 style="color:#c44;">Error</h1>
+            <div class="state-tag" style="background:#fee;color:#a22;">ERROR</div>
+            <p>Something went wrong. Resolve or restart.</p>
+            <div class="btns">
+                <button class="btn green" onclick="fire('error_resolved')">Error Resolved <span class="dest">&#8594; IDLE</span></button>
+                <button class="btn orange" onclick="fire('restart_requested')">Restart <span class="dest">&#8594; INITIALIZING</span></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         DATABASE PANEL
+         ═══════════════════════════════════════════════ -->
+    <div class="panel" id="panel-db">
+        <div class="db-panel">
+            <h2>Live Database Viewer</h2>
+            <p class="hint">Click through FSM states to create records. Data updates live after each transition.</p>
+            <div id="dbTables"></div>
+        </div>
+    </div>
+
+    <!-- Log bar -->
+    <div id="log"><b style="color:#999;">LOG:</b></div>
+
+    <script>
+        const TABLE_ORDER = ['sessions', 'payments', 'media', 'frame_configs', 'sync_queue'];
+        const TABLE_LABELS = {
+            sessions: 'sessions',
+            payments: 'payments',
+            media: 'media',
+            frame_configs: 'frame_configs',
+            sync_queue: 'sync_queue',
+        };
+        let currentTab = 'fsm';
+        let prevDbData = {};
+
+        // ── Tab switching ─────────────────────────
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelector(`.tab:nth-child(${tab === 'fsm' ? 1 : 2})`).classList.add('active');
+            document.getElementById('panel-' + tab).classList.add('active');
+            if (tab === 'db') refreshDb();
+        }
+
+        // ── FSM ───────────────────────────────────
+        function show(state) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            const el = document.getElementById('s-' + state);
+            if (el) el.classList.add('active');
+            const badge = document.getElementById('badge');
+            badge.textContent = state;
+            badge.className = state === 'ERROR' ? 'error' : '';
+        }
+
+        async function fire(trigger) {
+            const res = await fetch('/api/fire', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trigger }),
+            });
+            const d = await res.json();
+            if (d.error) { alert(d.error); return; }
+            addLog(d.prev, trigger, d.state);
+            show(d.state);
+            if (currentTab === 'db') refreshDb();
+        }
+
+        async function resetFSM() {
+            await fetch('/api/reset', { method: 'POST' });
+            document.getElementById('log').innerHTML = '<b style="color:#999;">LOG:</b><span class="chip">Reset</span>';
+            show('INITIALIZING');
+            prevDbData = {};
+            if (currentTab === 'db') refreshDb();
+        }
+
+        function addLog(prev, trigger, next) {
+            const log = document.getElementById('log');
+            const c = document.createElement('span');
+            c.className = 'chip';
+            c.innerHTML = '<i>' + prev + '</i> &rarr; <b>' + trigger + '</b> &rarr; <i>' + next + '</i>';
+            log.appendChild(c);
+            log.scrollLeft = log.scrollWidth;
+        }
+
+        // ── Database viewer ───────────────────────
+        async function refreshDb() {
+            const res = await fetch('/api/db/data');
+            const data = await res.json();
+            renderDbTables(data);
+        }
+
+        function renderDbTables(data) {
+            const container = document.getElementById('dbTables');
+            container.innerHTML = '';
+
+            for (const table of TABLE_ORDER) {
+                const rows = data[table] || [];
+                const group = document.createElement('div');
+                group.className = 'db-table-group';
+
+                // Title
+                const title = document.createElement('div');
+                title.className = 'db-table-title';
+                title.innerHTML = table + ' <span class="count">' + rows.length + ' row' + (rows.length !== 1 ? 's' : '') + '</span>';
+                group.appendChild(title);
+
+                if (rows.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'db-table-empty';
+                    empty.textContent = 'No records yet';
+                    group.appendChild(empty);
+                } else {
+                    const tbl = document.createElement('table');
+                    tbl.className = 'db-table';
+
+                    // Header
+                    const thead = document.createElement('thead');
+                    const headRow = document.createElement('tr');
+                    const cols = Object.keys(rows[0]);
+                    for (const col of cols) {
+                        const th = document.createElement('th');
+                        th.textContent = col;
+                        headRow.appendChild(th);
+                    }
+                    thead.appendChild(headRow);
+                    tbl.appendChild(thead);
+
+                    // Body
+                    const tbody = document.createElement('tbody');
+                    const prevRows = prevDbData[table] || [];
+                    for (let i = 0; i < rows.length; i++) {
+                        const tr = document.createElement('tr');
+                        const isNew = i >= prevRows.length;
+                        if (isNew) tr.className = 'new-row';
+
+                        for (const col of cols) {
+                            const td = document.createElement('td');
+                            const val = rows[i][col];
+                            if (val === null || val === undefined) {
+                                td.innerHTML = '<span class="null-val">null</span>';
+                            } else {
+                                td.textContent = val;
+                            }
+                            tr.appendChild(td);
+                        }
+                        tbody.appendChild(tr);
+                    }
+                    tbl.appendChild(tbody);
+                    group.appendChild(tbl);
+                }
+                container.appendChild(group);
+            }
+            prevDbData = JSON.parse(JSON.stringify(data));
+        }
+
+        // ── Init ──────────────────────────────────
+        fetch('/api/status').then(r => r.json()).then(d => show(d.state)).catch(() => show('INITIALIZING'));
+    </script>
+</body>
+
+</html>
