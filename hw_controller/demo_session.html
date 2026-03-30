@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Photobooth DB Session Prototype</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #fff; color: #222; padding: 20px; }
+
+        h1 { font-size: 20px; margin-bottom: 4px; }
+        .subtitle { font-size: 12px; color: #888; margin-bottom: 20px; }
+
+        /* Top bar */
+        .topbar { display: flex; gap: 12px; margin-bottom: 20px; align-items: center; }
+        .topbar button {
+            padding: 6px 14px; border-radius: 6px; border: 1px solid #ccc;
+            background: #fff; cursor: pointer; font-size: 12px;
+        }
+        .topbar button:hover { background: #f5f5f5; }
+        .topbar .status { font-size: 12px; color: #888; margin-left: auto; }
+
+        /* Steps */
+        .steps { display: flex; flex-direction: column; gap: 0; margin-bottom: 30px; }
+        .step {
+            display: flex; align-items: flex-start; gap: 14px;
+            padding: 12px 16px; border-left: 3px solid #eee;
+            position: relative;
+        }
+        .step.done { border-left-color: #4a4; }
+        .step.current { border-left-color: #48c; background: #f0f6ff; }
+        .step.pending { border-left-color: #eee; opacity: 0.5; }
+        .step-num {
+            flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: bold;
+        }
+        .step.done .step-num { background: #4a4; color: #fff; }
+        .step.current .step-num { background: #48c; color: #fff; }
+        .step.pending .step-num { background: #eee; color: #999; }
+        .step-body { flex: 1; }
+        .step-title { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+        .step-desc { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .step-db { font-size: 11px; color: #999; font-family: monospace; }
+        .step-btn {
+            padding: 6px 16px; border-radius: 6px; border: 1px solid #48c;
+            background: #fff; color: #246; cursor: pointer; font-size: 12px;
+            font-weight: bold; margin-top: 6px;
+        }
+        .step-btn:hover { background: #eef; }
+        .step-btn:disabled { opacity: 0.3; cursor: default; }
+
+        /* DB viewer */
+        .db-section { margin-top: 10px; }
+        .db-section h2 { font-size: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .db-table-group { margin-bottom: 20px; }
+        .db-table-title {
+            font-size: 13px; font-weight: bold; color: #48c;
+            margin-bottom: 4px; display: flex; align-items: center; gap: 8px;
+        }
+        .db-table-title .count {
+            font-size: 10px; font-weight: normal; color: #888;
+            background: #eee; padding: 2px 8px; border-radius: 10px;
+        }
+        .db-table-empty { font-size: 12px; color: #bbb; font-style: italic; padding: 6px 0; }
+        .db-table {
+            width: 100%; border-collapse: collapse; font-size: 11px;
+            border: 1px solid #eee;
+        }
+        .db-table th {
+            background: #f5f5f5; text-align: left; padding: 5px 8px;
+            font-weight: 600; color: #555; border-bottom: 1px solid #eee;
+            white-space: nowrap;
+        }
+        .db-table td {
+            padding: 5px 8px; border-bottom: 1px solid #f0f0f0;
+            max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .db-table tr:last-child td { border-bottom: none; }
+        .db-table tr.highlight td { background: #efd; animation: fadeIn 1.5s ease-out; }
+        @keyframes fadeIn { from { background: #bfb; } to { background: #efd; } }
+        .null-val { color: #ccc; font-style: italic; }
+        .sep { border-top: 1px solid #eee; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>Photobooth DB Session Prototype</h1>
+    <p class="subtitle">Walk through a user session step-by-step. Watch the database tables update in real time.</p>
+
+    <div class="topbar">
+        <button onclick="resetAll()">Reset All</button>
+        <button onclick="window.open('/api/export')">Export .db</button>
+        <span class="status" id="statusText">Step 1 of 11</span>
+    </div>
+
+    <div class="steps" id="stepsContainer"></div>
+
+    <div class="sep"></div>
+
+    <div class="db-section">
+        <h2>Database Tables</h2>
+        <div id="dbTables"></div>
+    </div>
+
+    <script>
+        const TABLE_ORDER = ['sessions', 'payments', 'media', 'frame_configs', 'sync_queue'];
+        let steps = [];
+        let currentStep = 1;
+        let prevDbData = {};
+
+        async function init() {
+            const res = await fetch('/api/steps');
+            steps = await res.json();
+            renderSteps();
+            refreshDb();
+        }
+
+        function renderSteps() {
+            const container = document.getElementById('stepsContainer');
+            container.innerHTML = '';
+            for (const step of steps) {
+                const div = document.createElement('div');
+                div.className = 'step ' + (step.id < currentStep ? 'done' : step.id === currentStep ? 'current' : 'pending');
+                div.id = 'step-' + step.id;
+
+                const num = document.createElement('div');
+                num.className = 'step-num';
+                num.textContent = step.id < currentStep ? '\u2713' : step.id;
+
+                const body = document.createElement('div');
+                body.className = 'step-body';
+
+                const title = document.createElement('div');
+                title.className = 'step-title';
+                title.textContent = step.title;
+
+                const desc = document.createElement('div');
+                desc.className = 'step-desc';
+                desc.textContent = step.desc;
+
+                const dbNote = document.createElement('div');
+                dbNote.className = 'step-db';
+                dbNote.textContent = step.db_note;
+
+                body.appendChild(title);
+                body.appendChild(desc);
+                body.appendChild(dbNote);
+
+                if (step.id === currentStep) {
+                    const btn = document.createElement('button');
+                    btn.className = 'step-btn';
+                    btn.textContent = step.action;
+                    btn.onclick = () => executeStep(step.id);
+                    body.appendChild(btn);
+                }
+
+                div.appendChild(num);
+                div.appendChild(body);
+                container.appendChild(div);
+            }
+            document.getElementById('statusText').textContent =
+                currentStep > steps.length ? 'All steps complete!' : `Step ${currentStep} of ${steps.length}`;
+        }
+
+        async function executeStep(stepId) {
+            const res = await fetch('/api/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ step: stepId }),
+            });
+            const d = await res.json();
+            if (d.ok) {
+                currentStep = stepId + 1;
+                renderSteps();
+                await refreshDb();
+                // Scroll to the next step
+                const next = document.getElementById('step-' + currentStep);
+                if (next) next.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        async function resetAll() {
+            await fetch('/api/reset', { method: 'POST' });
+            currentStep = 1;
+            prevDbData = {};
+            renderSteps();
+            refreshDb();
+        }
+
+        async function refreshDb() {
+            const res = await fetch('/api/db/data');
+            const data = await res.json();
+            renderDbTables(data);
+        }
+
+        function renderDbTables(data) {
+            const container = document.getElementById('dbTables');
+            container.innerHTML = '';
+
+            for (const table of TABLE_ORDER) {
+                const rows = data[table] || [];
+                const group = document.createElement('div');
+                group.className = 'db-table-group';
+
+                const title = document.createElement('div');
+                title.className = 'db-table-title';
+                title.innerHTML = table + ' <span class="count">' + rows.length + ' row' + (rows.length !== 1 ? 's' : '') + '</span>';
+                group.appendChild(title);
+
+                if (rows.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'db-table-empty';
+                    empty.textContent = 'No records yet';
+                    group.appendChild(empty);
+                } else {
+                    const tbl = document.createElement('table');
+                    tbl.className = 'db-table';
+                    const thead = document.createElement('thead');
+                    const headRow = document.createElement('tr');
+                    const cols = Object.keys(rows[0]);
+                    for (const col of cols) {
+                        const th = document.createElement('th');
+                        th.textContent = col;
+                        headRow.appendChild(th);
+                    }
+                    thead.appendChild(headRow);
+                    tbl.appendChild(thead);
+
+                    const tbody = document.createElement('tbody');
+                    const prevRows = prevDbData[table] || [];
+                    for (let i = 0; i < rows.length; i++) {
+                        const tr = document.createElement('tr');
+                        // Highlight new or changed rows
+                        const isNewOrChanged = i >= prevRows.length ||
+                            JSON.stringify(rows[i]) !== JSON.stringify(prevRows[i]);
+                        if (isNewOrChanged && Object.keys(prevDbData).length > 0) {
+                            tr.className = 'highlight';
+                        }
+                        for (const col of cols) {
+                            const td = document.createElement('td');
+                            const val = rows[i][col];
+                            if (val === null || val === undefined) {
+                                td.innerHTML = '<span class="null-val">null</span>';
+                            } else {
+                                td.textContent = val;
+                            }
+                            tr.appendChild(td);
+                        }
+                        tbody.appendChild(tr);
+                    }
+                    tbl.appendChild(tbody);
+                    group.appendChild(tbl);
+                }
+                container.appendChild(group);
+            }
+            prevDbData = JSON.parse(JSON.stringify(data));
+        }
+
+        init();
+    </script>
+</body>
+</html>

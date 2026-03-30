@@ -22,6 +22,11 @@ ZMQ_PUB_PORT = int(os.getenv("PB_ZMQ_PUB_PORT", "5556"))
 CAMERA_RECONNECT_ATTEMPTS = int(os.getenv("PB_CAMERA_RECONNECT_ATTEMPTS", "5"))
 CAMERA_RECONNECT_INTERVAL = float(os.getenv("PB_CAMERA_RECONNECT_INTERVAL", "2.0"))
 
+# ── Camera Preview ───────────────────────────────────────────────────
+PREVIEW_PORT = int(os.getenv("PB_PREVIEW_PORT", "8080"))
+PREVIEW_FPS = int(os.getenv("PB_PREVIEW_FPS", "15"))
+PREVIEW_QUALITY = int(os.getenv("PB_PREVIEW_QUALITY", "70"))
+
 # ── Session defaults ─────────────────────────────────────────────────
 DEFAULT_PHOTOS_PER_SESSION = int(os.getenv("PB_PHOTOS_PER_SESSION", "4"))
 DEFAULT_COUNTDOWN_SECONDS = int(os.getenv("PB_COUNTDOWN_SECONDS", "3"))

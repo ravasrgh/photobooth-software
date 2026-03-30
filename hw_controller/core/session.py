@@ -7,10 +7,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from hw_controller.config import DEFAULT_COUNTDOWN_SECONDS, DEFAULT_PHOTOS_PER_SESSION
+from hw_controller.config import (
+    DEFAULT_COUNTDOWN_SECONDS, DEFAULT_PHOTOS_PER_SESSION,
+    PREVIEW_PORT, PREVIEW_FPS, PREVIEW_QUALITY,
+)
 from hw_controller.core.state_machine import BoothStateMachine, State, Trigger, InvalidTransitionError
 from hw_controller.hardware.camera import CameraController, CameraError, CaptureResult
 from hw_controller.hardware.printer import PrinterController, PrinterError
+from hw_controller.hardware.preview import PreviewServer
 from hw_controller.db.database import Database
 from hw_controller.db.models import Session as SessionModel, Media, SyncJob
 
@@ -36,11 +40,15 @@ class SessionManager:
         camera: CameraController,
         printer: PrinterController,
         db: Database,
+        preview_server: Optional["PreviewServer"] = None,
     ):
         self._sm = state_machine
         self._camera = camera
         self._printer = printer
         self._db = db
+        self._preview = preview_server or PreviewServer(
+            port=PREVIEW_PORT, fps=PREVIEW_FPS, quality=PREVIEW_QUALITY,
+        )
 
         # Active session state
         self._session_id: Optional[str] = None
@@ -59,6 +67,24 @@ class SessionManager:
     @property
     def photos_remaining(self) -> int:
         return max(0, self._photos_target - self._photo_index)
+
+    # ── Preview lifecycle ────────────────────────────────────────────
+
+    async def start_preview(self) -> str:
+        """Start camera preview streaming (called on CAPTURE_SETUP).
+
+        Returns:
+            The preview stream URL.
+        """
+        await self._preview.start(self._camera)
+        logger.info("Preview started: %s", self._preview.url)
+        return self._preview.url
+
+    async def stop_preview(self) -> None:
+        """Stop camera preview streaming (called after last capture)."""
+        if self._preview.is_running:
+            await self._preview.stop()
+            logger.info("Preview stopped")
 
     # ── Session lifecycle ───────────────────────────────────────────
 

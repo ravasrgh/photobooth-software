@@ -189,6 +189,31 @@ class CameraController:
             self._connected = False
             raise CameraDisconnectedError(f"Capture failed: {e}") from e
 
+    # ── Preview frames ──────────────────────────────────────────────
+
+    def capture_preview_frame(self, quality: int = 70) -> bytes:
+        """Grab a single viewfinder JPEG frame for live preview streaming.
+
+        Uses GP_CAPTURE_PREVIEW which reads the camera's live-view buffer
+        without triggering the mechanical shutter.
+
+        Args:
+            quality: JPEG compression quality (1–100).
+
+        Returns:
+            Raw JPEG bytes.
+
+        Raises:
+            CameraDisconnectedError: if the camera is not connected.
+        """
+        self._ensure_connected()
+        try:
+            camera_file = self._camera.capture_preview(self._context)
+            data = camera_file.get_data_and_size()
+            return bytes(data)
+        except gp.GPhoto2Error as e:
+            raise CameraDisconnectedError(f"Preview capture failed: {e}") from e
+
     # ── Reconnection ────────────────────────────────────────────────
 
     def attempt_reconnect(self) -> bool:
