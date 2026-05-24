@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photobooth</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+
+  <!-- 1. Attract / Idle -->
+  <section id="screen-attract" class="screen active" onclick="app.startSession()">
+    <div class="screen-center">
+      <h1 class="attract-title">Photobooth</h1>
+      <p class="attract-sub">Tap anywhere to start</p>
+    </div>
+  </section>
+
+  <!-- 2. Onboarding -->
+  <section id="screen-onboarding" class="screen">
+    <div class="screen-center onboarding-wrap">
+      <h1 class="onboarding-title" style="color: #ffffff; margin-bottom: -12px;">PH[0]T0BOOTH PR[0]CEDURES</h1>
+      <div class="onboarding-cards" id="onboarding-cards">
+        <div class="onboarding-card active" data-step="0">
+          <h2>Strike a Pose</h2>
+          <p>Stand in front of the camera and we'll take 4 photos of you automatically.</p>
+        </div>
+        <div class="onboarding-card" data-step="1">
+          <h2>Customize Your Frame</h2>
+          <p>Choose your favorite layout, design, and add filters to each photo.</p>
+        </div>
+        <div class="onboarding-card" data-step="2">
+          <h2>Print and Download</h2>
+          <p>Get your photos printed instantly and scan the QR code to download them online.</p>
+        </div>
+        <div class="onboarding-card" data-step="3">
+          <h2>Payment</h2>
+          <p>Pay via QRIS or voucher to start your session. 4 photos + printed strip for Rp 50,000.</p>
+        </div>
+      </div>
+      <div class="onboarding-dots" id="onboarding-dots">
+        <span class="dot active"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+      <div class="onboarding-actions">
+        <button class="btn-secondary" onclick="app.skipOnboarding()">Skip</button>
+        <button class="btn-primary" id="btn-onboarding-next" onclick="app.nextOnboardingStep()">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Payment -->
+  <section id="screen-payment" class="screen">
+    <div class="screen-center payment-wrap">
+      <h2>Payment</h2>
+      <p class="payment-price">4 photos + printed strip — Rp 50,000</p>
+      <div class="payment-tabs tab-bar">
+        <button class="tab active" onclick="app.selectPaymentMethod('qris')">QRIS</button>
+        <button class="tab" onclick="app.selectPaymentMethod('voucher')">Voucher</button>
+      </div>
+      <div class="payment-body" id="payment-body">
+        <div class="payment-qr-area" id="payment-qr">
+          <div class="qr-placeholder">
+            <div class="qr-grid"></div>
+          </div>
+          <p class="payment-hint">Scan with any e-wallet app</p>
+        </div>
+        <p class="payment-status" id="payment-status">Waiting for payment...</p>
+      </div>
+      <button class="btn-secondary" onclick="app.cancelSession()">Cancel</button>
+    </div>
+  </section>
+
+  <!-- 4. Capture Setup -->
+  <section id="screen-capture-setup" class="screen">
+    <div class="capture-setup-wrap">
+      <div class="preview-area" id="preview-area">
+        <video id="webcam-video" autoplay playsinline muted></video>
+        <img id="mjpeg-preview" alt="Camera Preview" style="display:none">
+        <div class="preview-placeholder" id="preview-placeholder">Camera Preview</div>
+      </div>
+      <div class="capture-setup-info">
+        <p>You'll take <strong>4 photos</strong></p>
+        <button class="btn-primary btn-large" onclick="app.captureReady()">I'm Ready</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Camera Capture -->
+  <section id="screen-capture" class="screen">
+    <div class="capture-wrap">
+      <div class="capture-main">
+        <div class="capture-preview" id="capture-preview-area">
+          <video id="capture-webcam" autoplay playsinline muted></video>
+          <img id="capture-mjpeg" alt="" style="display:none">
+          <div class="countdown-overlay" id="countdown-overlay">
+            <span id="countdown-number">3</span>
+          </div>
+          <div class="capture-flash" id="capture-flash"></div>
+          <p class="capture-progress-overlay" id="capture-progress">Photo 1 of 4</p>
+        </div>
+        <div class="capture-sidebar" id="capture-thumbs"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Customization -->
+  <section id="screen-customization" class="screen">
+    <div class="customize-wrap">
+      <div class="customize-preview" id="customize-preview"></div>
+      <div class="customize-controls">
+        <div class="tab-bar">
+          <button class="tab active" onclick="app.showCustomizeTab('layout')">Layout</button>
+          <button class="tab" onclick="app.showCustomizeTab('design')">Design</button>
+          <button class="tab" onclick="app.showCustomizeTab('filters')">Filters</button>
+        </div>
+        <div class="tab-content" id="tab-layout">
+          <div class="option-grid" id="layout-options"></div>
+        </div>
+        <div class="tab-content" id="tab-design" style="display:none">
+          <div class="option-grid" id="design-options"></div>
+        </div>
+        <div class="tab-content" id="tab-filters" style="display:none">
+          <p class="filter-hint" id="filter-hint">Tap a photo above, then choose a filter</p>
+          <div class="option-grid" id="filter-options"></div>
+        </div>
+        <button class="btn-secondary btn-retake disabled" id="btn-retake" onclick="app.retakePhoto()">Retake Selected Photo</button>
+        <button class="btn-primary btn-large" onclick="app.confirmCustomization()">Looks Great</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Print Preview -->
+  <section id="screen-preview" class="screen">
+    <div class="screen-center preview-wrap">
+      <h2>Print Preview</h2>
+      <div class="preview-composite" id="preview-composite"></div>
+      <div class="preview-actions">
+        <button class="btn-secondary" onclick="app.backToCustomize()">Go Back and Edit</button>
+        <button class="btn-primary btn-large" onclick="app.requestPrint()">Print My Photos</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. Print Result + QR Scan -->
+  <section id="screen-printing" class="screen">
+    <div class="screen-center printing-wrap">
+      <h2 id="print-title">Printing...</h2>
+      <div class="print-progress">
+        <div class="progress-bar"><div class="progress-fill" id="print-progress-bar"></div></div>
+      </div>
+      <div class="qr-download">
+        <div class="qr-placeholder">
+          <div class="qr-grid"></div>
+        </div>
+        <p>Scan to download your photos</p>
+        <p class="small-text">Available for 7 days</p>
+      </div>
+      <div class="session-timer">
+        <div class="timer-bar"><div class="timer-fill" id="session-timer-bar"></div></div>
+        <p class="timer-text" id="session-timer-text">Session ends in 60s</p>
+      </div>
+      <p class="small-text">Tap anywhere to start a new session</p>
+    </div>
+  </section>
+
+  <script src="/static/app.js?v=5"></script>
+</body>
+</html>
