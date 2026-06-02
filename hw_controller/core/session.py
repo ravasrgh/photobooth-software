@@ -94,7 +94,7 @@ class SessionManager:
         photos_per_session: Optional[int] = None,
         countdown_seconds: Optional[int] = None,
     ) -> dict:
-        """Create a new session and transition to COUNTDOWN."""
+        """Create a new session and transition to COUNTDOWN"""
         self._session_id = str(uuid.uuid4())
         self._photo_index = 0
         self._photos_target = photos_per_session or DEFAULT_PHOTOS_PER_SESSION
